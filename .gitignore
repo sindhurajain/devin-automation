@@ -1,0 +1,11 @@
+.env
+automation.log
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+venv/
+env/
+.python-version
+.DS_Store
