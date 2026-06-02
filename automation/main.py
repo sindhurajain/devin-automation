@@ -9,7 +9,7 @@ from sqlalchemy import func
 
 from automation.config import settings
 from automation.db import SessionLocal, init_db
-from automation.devin import create_devin_session, wait_for_session_completion
+from automation.devin import cancel_devin_session, create_devin_session, wait_for_session_completion
 from automation.github import comment_on_issue, verify_github_signature
 from automation.models import Task, TaskStatus
 from automation.schemas import TaskRead
@@ -66,6 +66,35 @@ def update_task_status(task_id: int, **kwargs) -> None:
         for key, value in kwargs.items():
             setattr(db_task, key, value)
         db.commit()
+
+
+def cancel_issue_tasks(issue_number: int, issue_repo: str) -> int:
+    with get_db_session() as db:
+        tasks = (
+            db.query(Task)
+            .filter(
+                Task.issue_number == issue_number,
+                Task.issue_repo == issue_repo,
+                Task.status.in_([TaskStatus.queued.value, TaskStatus.running.value]),
+            )
+            .all()
+        )
+        for task in tasks:
+            if task.devin_session_id and task.status == TaskStatus.running.value:
+                try:
+                    cancel_devin_session(task.devin_session_id)
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to cancel remote Devin session %s for task %s: %s",
+                        task.devin_session_id,
+                        task.id,
+                        exc,
+                    )
+            task.status = TaskStatus.cancelled.value
+            task.error_message = "Issue closed before completion"
+            task.finished_at = datetime.utcnow()
+        db.commit()
+        return len(tasks)
 
 
 def process_task_sync(task_id: int) -> None:
@@ -199,9 +228,23 @@ async def github_webhook(
     issue_url = issue.get("html_url", "")
     issue_repo = repo.get("full_name", settings.github_repo)
     action = payload.get("action")
+    issue_state = issue.get("state")
     labels = [label.get("name", "") for label in issue.get("labels", [])]
 
-    logger.info("Received GitHub issue event %s for issue #%s labels=%s", action, issue_number, labels)
+    logger.info(
+        "Received GitHub issue event %s for issue #%s state=%s labels=%s",
+        action,
+        issue_number,
+        issue_state,
+        labels,
+    )
+
+    if issue_state == "closed":
+        cancelled = cancel_issue_tasks(issue_number, issue_repo)
+        detail = "Issue is closed."
+        if cancelled:
+            detail = "Issue is closed and pending Devin task was cancelled."
+        return JSONResponse({"detail": detail}, status_code=202)
 
     if "devin-fix" not in labels:
         return JSONResponse({"detail": "Issue does not have devin-fix label"}, status_code=202)

@@ -61,6 +61,30 @@ def get_devin_session(session_id: str) -> dict[str, Any]:
     return response.json()
 
 
+def cancel_devin_session(session_id: str) -> None:
+    if not session_id.startswith("devin-"):
+        session_id = f"devin-{session_id}"
+
+    url = f"{DEVIN_BASE_URL}/organizations/{settings.devin_org_id}/sessions/{session_id}"
+    try:
+        response = requests.delete(
+            url,
+            headers={
+                "Authorization": f"Bearer {settings.devin_api_key}",
+                "Accept": "application/json",
+            },
+            params={"archive": "true"},
+            timeout=30,
+        )
+        if response.status_code == 404:
+            logger.info("Devin session terminate endpoint returned 404 for session %s", session_id)
+            return
+        response.raise_for_status()
+        logger.info("Terminated Devin session %s and archived it", session_id)
+    except RequestException as exc:
+        logger.warning("Failed to terminate Devin session %s: %s", session_id, exc)
+
+
 def wait_for_session_completion(session_id: str, timeout_seconds: int = 300, poll_interval: int = 8) -> dict[str, Any]:
     deadline = time.time() + timeout_seconds
     while time.time() < deadline:
