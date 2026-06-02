@@ -85,7 +85,7 @@ def cancel_devin_session(session_id: str) -> None:
         logger.warning("Failed to terminate Devin session %s: %s", session_id, exc)
 
 
-def wait_for_session_completion(session_id: str, timeout_seconds: int = 300, poll_interval: int = 8) -> dict[str, Any]:
+def wait_for_session_completion(session_id: str, timeout_seconds: int = 1200, poll_interval: int = 15) -> dict[str, Any]:
     deadline = time.time() + timeout_seconds
     while time.time() < deadline:
         try:
