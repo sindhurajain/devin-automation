@@ -1,9 +1,12 @@
+import logging
 import time
 from typing import Any
 import requests
+from requests.exceptions import RequestException
 from automation.config import settings
 
 
+logger = logging.getLogger("automation.devin")
 DEVIN_BASE_URL = "https://api.devin.ai/v3"
 
 
@@ -52,18 +55,30 @@ def get_devin_session(session_id: str) -> dict[str, Any]:
             "Authorization": f"Bearer {settings.devin_api_key}",
             "Accept": "application/json",
         },
-        timeout=30,
+        timeout=60,
     )
     response.raise_for_status()
     return response.json()
 
 
-def wait_for_session_completion(session_id: str, timeout_seconds: int = 600, poll_interval: int = 8) -> dict[str, Any]:
+def wait_for_session_completion(session_id: str, timeout_seconds: int = 300, poll_interval: int = 8) -> dict[str, Any]:
     deadline = time.time() + timeout_seconds
     while time.time() < deadline:
-        session = get_devin_session(session_id)
+        try:
+            session = get_devin_session(session_id)
+        except RequestException as exc:
+            logger.warning(
+                "Transient Devin polling error for session %s: %s. Retrying in %s seconds.",
+                session_id,
+                exc,
+                poll_interval,
+            )
+            time.sleep(poll_interval)
+            continue
+
         status = session.get("status")
         if status in {"exit", "error"}:
             return session
         time.sleep(poll_interval)
+
     raise TimeoutError(f"Timed out waiting for Devin session {session_id}")
