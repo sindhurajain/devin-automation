@@ -22,8 +22,9 @@ def comment_on_issue(issue_number: int, message: str) -> None:
         url,
         json={"body": message},
         headers={
-            "Authorization": f"Bearer {settings.github_token}",
+            "Authorization": f"token {settings.github_token}",
             "Accept": "application/vnd.github+json",
+            "User-Agent": "devin-automation",
         },
         timeout=30,
     )
