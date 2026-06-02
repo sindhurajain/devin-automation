@@ -85,11 +85,13 @@ def cancel_devin_session(session_id: str) -> None:
         logger.warning("Failed to terminate Devin session %s: %s", session_id, exc)
 
 
-def wait_for_session_completion(session_id: str, timeout_seconds: int = 1200, poll_interval: int = 15) -> dict[str, Any]:
+def wait_for_session_completion(session_id: str, timeout_seconds: int = 3600, poll_interval: int = 15) -> tuple[dict[str, Any], bool]:
     deadline = time.time() + timeout_seconds
+    last_session: dict[str, Any] = {"session_id": session_id, "status": "unknown"}
     while time.time() < deadline:
         try:
             session = get_devin_session(session_id)
+            last_session = session
         except RequestException as exc:
             logger.warning(
                 "Transient Devin polling error for session %s: %s. Retrying in %s seconds.",
@@ -102,7 +104,12 @@ def wait_for_session_completion(session_id: str, timeout_seconds: int = 1200, po
 
         status = session.get("status")
         if status in {"exit", "error"}:
-            return session
+            return session, False
         time.sleep(poll_interval)
 
-    raise TimeoutError(f"Timed out waiting for Devin session {session_id}")
+    logger.warning(
+        "Timed out waiting for Devin session %s after %s seconds; leaving task in running state for later recovery.",
+        session_id,
+        timeout_seconds,
+    )
+    return last_session, True
