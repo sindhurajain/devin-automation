@@ -85,6 +85,30 @@ def cancel_devin_session(session_id: str) -> None:
         logger.warning("Failed to terminate Devin session %s: %s", session_id, exc)
 
 
+def _has_open_pr(session: dict[str, Any]) -> bool:
+    pulls = session.get("pull_requests", []) or []
+    return any(
+        pull.get("pr_state") == "open" and pull.get("pr_url")
+        for pull in pulls
+    )
+
+
+def _is_terminal_session(session: dict[str, Any]) -> bool:
+    status = session.get("status")
+    status_detail = session.get("status_detail")
+
+    if status in {"exit", "error", "suspended"}:
+        return True
+
+    if status == "running" and status_detail == "finished":
+        return True
+
+    if _has_open_pr(session):
+        return True
+
+    return False
+
+
 def wait_for_session_completion(session_id: str, timeout_seconds: int = 3600, poll_interval: int = 15) -> tuple[dict[str, Any], bool]:
     deadline = time.time() + timeout_seconds
     last_session: dict[str, Any] = {"session_id": session_id, "status": "unknown"}
@@ -102,14 +126,23 @@ def wait_for_session_completion(session_id: str, timeout_seconds: int = 3600, po
             time.sleep(poll_interval)
             continue
 
-        status = session.get("status")
-        if status in {"exit", "error"}:
+        if _is_terminal_session(session):
             return session, False
+
+        logger.debug(
+            "Session %s still active: status=%s status_detail=%s pull_requests=%s",
+            session_id,
+            session.get("status"),
+            session.get("status_detail"),
+            session.get("pull_requests"),
+        )
         time.sleep(poll_interval)
 
     logger.warning(
-        "Timed out waiting for Devin session %s after %s seconds; leaving task in running state for later recovery.",
+        "Timed out waiting for Devin session %s after %s seconds; last observed status=%s status_detail=%s. Leaving task in running state for later recovery.",
         session_id,
         timeout_seconds,
+        last_session.get("status"),
+        last_session.get("status_detail"),
     )
     return last_session, True

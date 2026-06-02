@@ -155,7 +155,14 @@ def finalize_task(task_id: int, issue_number: int, final_session: dict[str, Any]
     if pulls:
         pr_url = pulls[0].get("pr_url")
 
-    if final_session.get("status") == "exit":
+    status = final_session.get("status")
+    status_detail = final_session.get("status_detail")
+    has_open_pr = any(
+        pull.get("pr_state") == "open" and pull.get("pr_url")
+        for pull in pulls
+    )
+
+    if status == "exit" or status_detail == "finished" or has_open_pr:
         update_task_status(
             task_id,
             status=TaskStatus.success.value,
@@ -170,7 +177,7 @@ def finalize_task(task_id: int, issue_number: int, final_session: dict[str, Any]
         comment_on_issue(issue_number, comment_text)
         return
 
-    error_message = final_session.get("error_message") or final_session.get("status_detail") or "Unknown Devin error"
+    error_message = final_session.get("error_message") or status_detail or "Unknown Devin error"
     update_task_status(
         task_id,
         status=TaskStatus.failed.value,
