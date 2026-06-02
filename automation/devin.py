@@ -1,0 +1,69 @@
+import time
+from typing import Any
+import requests
+from automation.config import settings
+
+
+DEVIN_BASE_URL = "https://api.devin.ai/v3"
+
+
+def create_devin_session(issue_number: int, issue_title: str, issue_body: str, repo_url: str) -> dict[str, Any]:
+    prompt = (
+        f"You are Devin, an autonomous code remediation agent. "
+        f"The task is issue #{issue_number} in repository {repo_url}. "
+        f"Issue title: {issue_title}\n\nIssue body:\n{issue_body}\n\n"
+        "Please fix this issue in the repository by making the minimal patch required, adding tests when appropriate, and creating a pull request. "
+        "If you create a PR, return the PR metadata in the session response. "
+        "If you need more information, fail with a clear error message instead of guessing."
+    )
+    configured_repos = [repo.strip() for repo in settings.devin_repo_urls.split(",") if repo.strip()]
+    repos = configured_repos or [repo_url]
+    payload: dict[str, Any] = {
+        "prompt": prompt,
+        "title": f"Devin remediation: issue #{issue_number} - {issue_title}",
+        "bypass_approval": True,
+        "tags": ["devin-fix", "automation", "superset"],
+        "repos": repos,
+        "devin_mode": settings.devin_mode,
+        "structured_output_required": False,
+    }
+    if settings.devin_create_as_user_id:
+        payload["create_as_user_id"] = settings.devin_create_as_user_id
+
+    url = f"{DEVIN_BASE_URL}/organizations/{settings.devin_org_id}/sessions"
+    response = requests.post(
+        url,
+        json=payload,
+        headers={
+            "Authorization": f"Bearer {settings.devin_api_key}",
+            "Content-Type": "application/json",
+        },
+        timeout=60,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def get_devin_session(session_id: str) -> dict[str, Any]:
+    url = f"{DEVIN_BASE_URL}/organizations/{settings.devin_org_id}/sessions/{session_id}"
+    response = requests.get(
+        url,
+        headers={
+            "Authorization": f"Bearer {settings.devin_api_key}",
+            "Accept": "application/json",
+        },
+        timeout=30,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def wait_for_session_completion(session_id: str, timeout_seconds: int = 600, poll_interval: int = 8) -> dict[str, Any]:
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        session = get_devin_session(session_id)
+        status = session.get("status")
+        if status in {"exit", "error"}:
+            return session
+        time.sleep(poll_interval)
+    raise TimeoutError(f"Timed out waiting for Devin session {session_id}")
