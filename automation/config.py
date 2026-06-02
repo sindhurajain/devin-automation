@@ -9,7 +9,6 @@ class Settings(BaseSettings):
     devin_api_key: str = Field(..., env="DEVIN_API_KEY")
     devin_org_id: str = Field(..., env="DEVIN_ORG_ID")
     devin_repo_urls: str = Field(..., env="DEVIN_REPO_URLS")
-    devin_create_as_user_id: str | None = Field(None, env="DEVIN_CREATE_AS_USER_ID")
     devin_mode: str = Field("normal", env="DEVIN_MODE")
 
     database_url: str = Field("postgresql://postgres:postgres@db:5432/devin_automation", env="DATABASE_URL")

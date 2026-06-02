@@ -30,8 +30,6 @@ def create_devin_session(issue_number: int, issue_title: str, issue_body: str, r
         "devin_mode": settings.devin_mode,
         "structured_output_required": False,
     }
-    if settings.devin_create_as_user_id:
-        payload["create_as_user_id"] = settings.devin_create_as_user_id
 
     logger.info("Creating Devin session for issue #%s on repo %s", issue_number, repo_url)
     url = f"{DEVIN_BASE_URL}/organizations/{settings.devin_org_id}/sessions"
