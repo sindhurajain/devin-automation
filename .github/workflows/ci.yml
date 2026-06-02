@@ -24,7 +24,7 @@ jobs:
 
       - name: Validate Python syntax
         run: |
-          python -m py_compile automation/*.py automation/*/*.py deploy/*.py
+          python -m compileall automation
 
       - name: Build Docker image
         run: |
