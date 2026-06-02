@@ -9,7 +9,7 @@ services:
     depends_on:
       - db
     volumes:
-      - ./deploy:/app/deploy
+      - ./automation:/app/automation
       - ./automation.log:/app/automation.log
     restart: unless-stopped
 
