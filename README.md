@@ -75,9 +75,11 @@ docker compose up --build
 
 4. The FastAPI service will be available at `http://localhost:8080`.
 
-    The service uses PostgreSQL for task persistence. When running with Docker Compose, Postgres is started automatically, but `DATABASE_URL` must still point to the correct database.
+    The service uses PostgreSQL for task persistence. When running with Docker Compose using the provided `.env.example`, Postgres is started automatically and `DATABASE_URL` should already be set correctly. Change it only if you customize the database host, port, or credentials.
 
-    If you want GitHub to deliver real webhooks to your local service, expose it with a tunnel service such as `ngrok` or `localtunnel` and set the webhook URL to the public tunnel address. For example:
+    If you want real GitHub webhook events from the Superset fork to reach your local service, start a tunnel after the service is running and then configure the GitHub webhook URL accordingly. If you only need to access the service locally in your browser, a tunnel is not required.
+
+    Example tunnel commands:
 
     - `ngrok http 8080`
     - `npx localtunnel --port 8080`
@@ -87,7 +89,7 @@ docker compose up --build
     - `https://<your-tunnel-id>.ngrok.io/webhook`
     - `https://<your-tunnel-id>.loca.lt/webhook`
 
-    Make sure the tunnel URL is the one registered in GitHub and that `GITHUB_WEBHOOK_SECRET` matches the webhook secret configured in GitHub.
+    Make sure the tunnel URL is the one registered in GitHub and that `GITHUB_WEBHOOK_SECRET` matches the webhook secret configured on the Superset fork.
 
 ## Docker build
 
