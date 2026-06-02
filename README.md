@@ -35,23 +35,7 @@ Required values:
 - `POSTGRES_PASSWORD` - local Postgres password for Docker Compose
 - `LOG_FILE` - path for service logs
 
-## Local development
-
-1. Create `.env` from the example:
-
-```bash
-cp .env.example .env
-```
-
-2. Start local services with Docker Compose:
-
-```bash
-docker compose up --build
-```
-
-3. The FastAPI service will be available at `http://localhost:8000`.
-
-4. Health and status endpoints:
+## API endpoints
 
 - `GET /health`
 - `GET /status`
@@ -59,20 +43,51 @@ docker compose up --build
 - `GET /tasks/{task_id}`
 - `GET /metrics`
 
-## Run locally without Docker
+## Deployed service
 
-Install dependencies:
+The deployed Railway service exposes the Swagger UI and API endpoints at:
+
+- Swagger docs and endpoints: `https://devin-automation-production.up.railway.app/docs`
+- Raw task response example: `https://devin-automation-production.up.railway.app/tasks/1`
+- Raw tasks response list: `https://devin-automation-production.up.railway.app/tasks`
+
+The current Railway deployment already uses an existing `.env` configuration, so no local `.env` setup is required to access the deployed service (note that deployment is limited by Devin usage capacity).
+
+- Deployed updates are handled by Railway automatically when you merge a PR into `master`.
+
+## Local development with Docker
+
+1. Create `.env` from the example:
 
 ```bash
-python -m pip install --upgrade pip
-pip install -r requirements.txt
+cp .env.example .env
 ```
 
-Run the app:
+2. Copy `.env.example` to `.env` and fill in your own values.
+
+    Follow the format in `.env.example` exactly.
+
+3. Start local services with Docker Compose:
 
 ```bash
-uvicorn automation.main:app --host 0.0.0.0 --port 8000
+docker compose up --build
 ```
+
+4. The FastAPI service will be available at `http://localhost:8080`.
+
+    The service uses PostgreSQL for task persistence. When running with Docker Compose, Postgres is started automatically, but `DATABASE_URL` must still point to the correct database.
+
+    If you want GitHub to deliver real webhooks to your local service, expose it with a tunnel service such as `ngrok` or `localtunnel` and set the webhook URL to the public tunnel address. For example:
+
+    - `ngrok http 8080`
+    - `npx localtunnel --port 8080`
+
+    Then configure GitHub with a webhook URL like:
+
+    - `https://<your-tunnel-id>.ngrok.io/webhook`
+    - `https://<your-tunnel-id>.loca.lt/webhook`
+
+    Make sure the tunnel URL is the one registered in GitHub and that `GITHUB_WEBHOOK_SECRET` matches the webhook secret configured in GitHub.
 
 ## Docker build
 
@@ -85,33 +100,10 @@ docker build . -t devin-automation
 Run the image:
 
 ```bash
-docker run --env-file .env -p 8000:8000 devin-automation
+docker run --env-file .env -p 8080:8000 devin-automation
 ```
-
-## GitHub Actions CI
-
-The workflow is defined in `.github/workflows/ci.yml` and includes:
-
-- dependency installation
-- Python syntax validation
-- Docker build verification
-
-The workflow is configured to run on all pushes and pull requests.
-
-## Railway deployment
-
-To deploy on Railway:
-
-1. Ensure your repository is pushed to GitHub.
-2. Create or link a Railway project.
-3. Configure the deployment branch in Railway.
-4. Add required environment variables in Railway settings.
-5. Deploy the Docker container.
-
-If you want Railway to deploy only after CI passes, use GitHub branch protection or status check rules.
 
 ## Notes
 
 - Keep `.env` local only.
 - `docker-compose.yml` is intended for local development and testing.
-- The service uses PostgreSQL for task persistence, so make sure `DATABASE_URL` points to a valid database.
