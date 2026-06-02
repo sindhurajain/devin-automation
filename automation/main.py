@@ -103,13 +103,25 @@ def process_task_sync(task_id: int) -> None:
         if not task:
             logger.error("Task %s not found for processing", task_id)
             return
-        if task.status != TaskStatus.queued.value:
+
+        if task.status == TaskStatus.queued.value:
+            task.status = TaskStatus.running.value
+            task.started_at = datetime.utcnow()
+            db.commit()
+            db.refresh(task)
+        elif task.status == TaskStatus.running.value:
+            if not task.devin_session_id:
+                logger.warning(
+                    "Task %s is running without a Devin session ID; restarting task.",
+                    task.id,
+                )
+                task.status = TaskStatus.queued.value
+                db.commit()
+                db.refresh(task)
+                return process_task_sync(task.id)
+        else:
             logger.info("Task %s already in status %s", task.id, task.status)
             return
-        task.status = TaskStatus.running.value
-        task.started_at = datetime.utcnow()
-        db.commit()
-        db.refresh(task)
 
         task_id = task.id
         issue_number = task.issue_number
@@ -118,12 +130,16 @@ def process_task_sync(task_id: int) -> None:
         issue_repo = task.issue_repo
 
     logger.info("Starting Devin remediation for issue #%s", issue_number)
-    try:
-        comment_on_issue(issue_number, f"Devin has started working on this issue. Task ID: {task_id}")
-    except Exception as exc:
-        logger.warning("Failed to post start comment for issue #%s: %s", issue_number, exc)
+    if task.devin_session_id and task.status == TaskStatus.running.value:
+        session_id = task.devin_session_id
+        session_url = task.devin_session_url
+        logger.info("Resuming existing Devin session %s for task %s", session_id, task_id)
+    else:
+        try:
+            comment_on_issue(issue_number, f"Devin has started working on this issue. Task ID: {task_id}")
+        except Exception as exc:
+            logger.warning("Failed to post start comment for issue #%s: %s", issue_number, exc)
 
-    try:
         session_response = create_devin_session(
             issue_number=issue_number,
             issue_title=issue_title,
@@ -193,9 +209,9 @@ async def startup_event() -> None:
     init_db()
     logger.info("Automation service starting")
     with get_db_session() as db:
-        queued_tasks = db.query(Task).filter(Task.status == TaskStatus.queued.value).all()
-    for task in queued_tasks:
-        logger.info("Recovering queued task %s on startup", task.id)
+        recover_tasks = db.query(Task).filter(Task.status.in_([TaskStatus.queued.value, TaskStatus.running.value])).all()
+    for task in recover_tasks:
+        logger.info("Recovering task %s on startup with status %s", task.id, task.status)
         asyncio.create_task(process_task(task.id))
 
 
