@@ -17,7 +17,13 @@ This repository contains an event-driven automation service for GitHub issues. I
 - Docker (for local container builds)
 - Docker Compose (optional for local stack)
 - GitHub repository access for webhook configuration
-- Railway account or another container deployment platform
+- GitHub personal access token for issue commenting and API access
+- Devin account/API credentials for session creation and polling
+- A GitHub repo or fork (e.g. your Superset fork) for the service to target
+- Webhook configured for issue events pointing to the service endpoint
+- Railway account or another container deployment platform (for deployments only; local development uses Docker/Docker Compose)
+
+The GitHub token, Devin credentials, target repo/fork, and webhook setup must be configured before using the service for live issue automation.
 
 ## Environment variables
 
