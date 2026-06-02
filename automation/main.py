@@ -58,9 +58,9 @@ def queue_task(issue_number: int, issue_title: str, issue_body: str, issue_url: 
         return task
 
 
-def update_task_status(task: Task, **kwargs) -> None:
+def update_task_status(task_id: int, **kwargs) -> None:
     with get_db_session() as db:
-        db_task = db.query(Task).filter(Task.id == task.id).one_or_none()
+        db_task = db.query(Task).filter(Task.id == task_id).one_or_none()
         if not db_task:
             return
         for key, value in kwargs.items():
@@ -80,24 +80,31 @@ def process_task_sync(task_id: int) -> None:
         task.status = TaskStatus.running.value
         task.started_at = datetime.utcnow()
         db.commit()
+        db.refresh(task)
 
-    logger.info("Starting Devin remediation for issue #%s", task.issue_number)
+        task_id = task.id
+        issue_number = task.issue_number
+        issue_title = task.issue_title
+        issue_body = task.issue_body
+        issue_repo = task.issue_repo
+
+    logger.info("Starting Devin remediation for issue #%s", issue_number)
     try:
-        comment_on_issue(task.issue_number, f"Devin has started working on this issue. Task ID: {task.id}")
+        comment_on_issue(issue_number, f"Devin has started working on this issue. Task ID: {task_id}")
     except Exception as exc:
-        logger.warning("Failed to post start comment for issue #%s: %s", task.issue_number, exc)
+        logger.warning("Failed to post start comment for issue #%s: %s", issue_number, exc)
 
     try:
         session_response = create_devin_session(
-            issue_number=task.issue_number,
-            issue_title=task.issue_title,
-            issue_body=task.issue_body or "",
-            repo_url=f"https://github.com/{task.issue_repo}",
+            issue_number=issue_number,
+            issue_title=issue_title,
+            issue_body=issue_body or "",
+            repo_url=f"https://github.com/{issue_repo}",
         )
         session_id = session_response.get("session_id")
         session_url = session_response.get("url")
-        update_task_status(task, devin_session_id=session_id, devin_session_url=session_url)
-        logger.info("Created Devin session %s for task %s", session_id, task.id)
+        update_task_status(task_id, devin_session_id=session_id, devin_session_url=session_url)
+        logger.info("Created Devin session %s for task %s", session_id, task_id)
 
         final_session = wait_for_session_completion(session_id)
         pr_url = None
@@ -107,45 +114,45 @@ def process_task_sync(task_id: int) -> None:
 
         if final_session.get("status") == "exit":
             update_task_status(
-                task,
+                task_id,
                 status=TaskStatus.success.value,
                 pr_url=pr_url,
                 finished_at=datetime.utcnow(),
             )
-            logger.info("Task %s completed successfully, PR=%s", task.id, pr_url)
+            logger.info("Task %s completed successfully, PR=%s", task_id, pr_url)
             comment_text = (
-                f"Devin completed the fix for issue #{task.issue_number}."
+                f"Devin completed the fix for issue #{issue_number}."
                 f" PR: {pr_url}" if pr_url else " Fix completed."
             )
-            comment_on_issue(task.issue_number, comment_text)
+            comment_on_issue(issue_number, comment_text)
         else:
             error_message = final_session.get("error_message") or final_session.get("status_detail") or "Unknown Devin error"
             update_task_status(
-                task,
+                task_id,
                 status=TaskStatus.failed.value,
                 error_message=error_message,
                 finished_at=datetime.utcnow(),
             )
-            logger.error("Task %s failed in session %s: %s", task.id, session_id, error_message)
+            logger.error("Task %s failed in session %s: %s", task_id, session_id, error_message)
             comment_on_issue(
-                task.issue_number,
+                issue_number,
                 f"Devin failed to complete this task: {error_message}. See session {session_id}",
             )
     except Exception as exc:
         update_task_status(
-            task,
+            task_id,
             status=TaskStatus.failed.value,
             error_message=str(exc),
             finished_at=datetime.utcnow(),
         )
-        logger.exception("Task %s execution failed", task.id)
+        logger.exception("Task %s execution failed", task_id)
         try:
             comment_on_issue(
-                task.issue_number,
+                issue_number,
                 f"Devin automation encountered an error while processing this issue: {exc}",
             )
         except Exception:
-            logger.exception("Unable to comment failure for issue #%s", task.issue_number)
+            logger.exception("Unable to comment failure for issue #%s", issue_number)
 
 
 async def process_task(task_id: int) -> None:
