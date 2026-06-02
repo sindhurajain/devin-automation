@@ -40,7 +40,12 @@ def queue_task(issue_number: int, issue_title: str, issue_body: str, issue_url: 
             .first()
         )
         if existing and existing.status != TaskStatus.failed.value:
-            logger.info("Skipping duplicate task for issue #%s", issue_number)
+            logger.info(
+                "Skipping duplicate task %s for issue #%s with status %s",
+                existing.id,
+                issue_number,
+                existing.status,
+            )
             return existing
 
         task = Task(
@@ -62,10 +67,13 @@ def update_task_status(task_id: int, **kwargs) -> None:
     with get_db_session() as db:
         db_task = db.query(Task).filter(Task.id == task_id).one_or_none()
         if not db_task:
+            logger.warning("update_task_status called for missing task %s", task_id)
             return
         for key, value in kwargs.items():
+            logger.debug("Updating task %s attribute %s=%s", task_id, key, value)
             setattr(db_task, key, value)
         db.commit()
+        logger.debug("Task %s status updated: %s", task_id, {k: kwargs[k] for k in kwargs})
 
 
 def cancel_issue_tasks(issue_number: int, issue_repo: str) -> int:
@@ -79,6 +87,7 @@ def cancel_issue_tasks(issue_number: int, issue_repo: str) -> int:
             )
             .all()
         )
+        logger.info("Cancelling %s pending task(s) for issue #%s in repo %s", len(tasks), issue_number, issue_repo)
         for task in tasks:
             if task.devin_session_id and task.status == TaskStatus.running.value:
                 try:
@@ -94,6 +103,7 @@ def cancel_issue_tasks(issue_number: int, issue_repo: str) -> int:
             task.error_message = "Issue closed before completion"
             task.finished_at = datetime.utcnow()
         db.commit()
+        logger.info("Cancelled %s task(s) for issue #%s", len(tasks), issue_number)
         return len(tasks)
 
 
@@ -120,9 +130,10 @@ def prepare_task_for_processing(task_id: int) -> Task | None:
                 task.status = TaskStatus.queued.value
                 db.commit()
                 return None
+            logger.debug("Resuming already-running task %s with Devin session %s", task.id, task.devin_session_id)
             return task
 
-        logger.info("Task %s already in status %s", task.id, task.status)
+        logger.info("Task %s is in status %s and will not be processed now", task.id, task.status)
         return None
 
 
@@ -131,6 +142,7 @@ def ensure_devin_session(task: Task) -> tuple[str, str]:
         logger.info("Resuming existing Devin session %s for task %s", task.devin_session_id, task.id)
         return task.devin_session_id, task.devin_session_url or ""
 
+    logger.info("No existing Devin session for task %s; generating a new one", task.id)
     try:
         comment_on_issue(task.issue_number, f"Devin has started working on this issue. Task ID: {task.id}")
     except Exception as exc:
@@ -160,6 +172,13 @@ def finalize_task(task_id: int, issue_number: int, final_session: dict[str, Any]
     has_open_pr = any(
         pull.get("pr_state") == "open" and pull.get("pr_url")
         for pull in pulls
+    )
+    logger.info(
+        "Finalizing task %s: session status=%s status_detail=%s open_pr=%s",
+        task_id,
+        status,
+        status_detail,
+        has_open_pr,
     )
 
     if status == "exit" or status_detail == "finished" or has_open_pr:
@@ -192,6 +211,7 @@ def finalize_task(task_id: int, issue_number: int, final_session: dict[str, Any]
 
 
 def fail_task(task_id: int, issue_number: int, exc: Exception) -> None:
+    logger.warning("Failing task %s due to exception: %s", task_id, exc)
     update_task_status(
         task_id,
         status=TaskStatus.failed.value,
@@ -240,6 +260,7 @@ async def startup_event() -> None:
     logger.info("Automation service starting")
     with get_db_session() as db:
         recover_tasks = db.query(Task).filter(Task.status.in_([TaskStatus.queued.value, TaskStatus.running.value])).all()
+    logger.info("Found %s task(s) to recover on startup", len(recover_tasks))
     for task in recover_tasks:
         logger.info("Recovering task %s on startup with status %s", task.id, task.status)
         asyncio.create_task(process_task(task.id))
@@ -259,11 +280,13 @@ async def github_webhook(
 ) -> JSONResponse:
     body = await request.body()
     if not verify_github_signature(settings.github_webhook_secret, x_hub_signature_256 or "", body):
+        logger.warning("Invalid GitHub webhook signature for event %s", x_github_event)
         raise HTTPException(status_code=401, detail="Invalid webhook signature")
 
     payload = await request.json()
     event = x_github_event or ""
     if event != "issues":
+        logger.info("Ignoring unsupported GitHub event %s", event)
         return JSONResponse({"detail": "Event ignored"}, status_code=202)
 
     issue = payload.get("issue") or {}
@@ -293,6 +316,7 @@ async def github_webhook(
         return JSONResponse({"detail": detail}, status_code=202)
 
     if "devin-fix" not in labels:
+        logger.info("Issue #%s does not have devin-fix label; skipping", issue_number)
         return JSONResponse({"detail": "Issue does not have devin-fix label"}, status_code=202)
 
     task = queue_task(issue_number, issue_title, issue_body, issue_url, issue_repo)

@@ -33,6 +33,7 @@ def create_devin_session(issue_number: int, issue_title: str, issue_body: str, r
     if settings.devin_create_as_user_id:
         payload["create_as_user_id"] = settings.devin_create_as_user_id
 
+    logger.info("Creating Devin session for issue #%s on repo %s", issue_number, repo_url)
     url = f"{DEVIN_BASE_URL}/organizations/{settings.devin_org_id}/sessions"
     response = requests.post(
         url,
@@ -44,11 +45,14 @@ def create_devin_session(issue_number: int, issue_title: str, issue_body: str, r
         timeout=60,
     )
     response.raise_for_status()
-    return response.json()
+    session = response.json()
+    logger.info("Created Devin session %s for issue #%s", session.get("session_id"), issue_number)
+    return session
 
 
 def get_devin_session(session_id: str) -> dict[str, Any]:
     url = f"{DEVIN_BASE_URL}/organizations/{settings.devin_org_id}/sessions/{session_id}"
+    logger.debug("Fetching Devin session %s", session_id)
     response = requests.get(
         url,
         headers={
@@ -127,6 +131,13 @@ def wait_for_session_completion(session_id: str, timeout_seconds: int = 3600, po
             continue
 
         if _is_terminal_session(session):
+            logger.info(
+                "Devin session %s reached terminal state status=%s status_detail=%s pulls=%s",
+                session_id,
+                session.get("status"),
+                session.get("status_detail"),
+                session.get("pull_requests"),
+            )
             return session, False
 
         logger.debug(
